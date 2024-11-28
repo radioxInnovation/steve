@@ -161,15 +161,11 @@ class Pipeline:
         except Exception as e:
             return self.log( f"Failed to render template {e}" )
 
-        def default_inlet_fnc ( body ):
-            body["messages"] = [message for message in body["messages"] if message["role"] != "system"]       
-            body["messages"].insert(0, {"role": "system", "content": system } )
-            return body
-        try:
-            inlet_func = interface_functions.get("inlet", default_inlet_fnc)
-            body = inlet_func( body )
-        except Exception as e:
-            return self.log( f"Failed to call inlet function {e}" )
+        body["messages"] = [message for message in body["messages"] if message["role"] != "system"]       
+        body["messages"].insert(0, {"role": "system", "content": system } )
+
+        inlet_func = interface_functions.get("inlet", lambda x: x)
+        body = inlet_func( body )
 
         class CustomResponse:
             def __init__(self ):
