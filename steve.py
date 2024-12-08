@@ -210,10 +210,10 @@ class Pipeline:
 
             elif "ollama_url" in header and "model" in header:
                 OLLAMA_URL = header.get("ollama_url", "http://host.docker.internal:11434")
-                MODEL = header.get("model", "llama3.2:latest")
+                ollama_model = header.get("model", "llama3.2:latest")
 
                 from ollama import Client
-                client = Client( host = ollama_url )
+                client = Client( host = OLLAMA_URL )
                 response = client.chat(model=ollama_model, messages=body["messages"], stream=body["stream"] )
 
                 if body["stream"]:
