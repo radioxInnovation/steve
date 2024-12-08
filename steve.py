@@ -267,5 +267,5 @@ class Pipeline:
         else:
             yield f"system: {system}"
 
-        if os.path.exists(temp_dir_path):
-           shutil.rmtree(temp_dir_path)
+        if os.path.exists(root):
+           shutil.rmtree(root)
