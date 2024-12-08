@@ -41,23 +41,6 @@ class Pipeline:
     def spit_system_prompt( self, body, root ):
         system_template = next((msg["content"] for msg in body["messages"] if msg["role"] == "system"), "")
         header = {}
-
-        # match = re.match(r"^data:application/zip;base64,([^\n]+)$", system_template)
-
-        # if match:
-        #     base64_data = match.group(1)
-        #     file_data = base64.b64decode( base64_data )
-        #     system_template = ""
-
-        #     # extract
-        #     with zipfile.ZipFile(io.BytesIO(file_data)) as zip_file:
-        #         zip_file.extractall(path=root)
-
-        #         for file_name in zip_file.namelist():
-        #             if file_name.endswith("system.mako"):
-        #                 with zip_file.open(file_name) as file:
-        #                     system_template = file.read().decode('utf-8')
-
         yaml_match = re.match( r'---\s*\n(.*?)\n---\s*\n?(.*)', system_template, re.DOTALL )
         if yaml_match:
             header = yaml.safe_load( yaml_match.group(1) )
@@ -172,6 +155,11 @@ class Pipeline:
                 return self.log( f"Failed to install requirements {e}" )
 
             files = self.process_files( header, root )
+
+            system_file = header.get("system", False)
+            if system_file:
+                with open(os.path.join(root, system_file ), 'r') as file:
+                    system_template = file.read()
 
             system, interface_functions = self.render( system_template, header, root )
             
