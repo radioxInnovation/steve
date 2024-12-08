@@ -155,117 +155,121 @@ class Pipeline:
         self, user_message: str, model_id: str, messages: List[dict], body: dict
     ) -> Union[str, Generator, Iterator]:
 
-        root = os.path.join("/app", "steve", str(uuid.uuid4()))
-        os.makedirs(root, exist_ok=True)
-
         try:
-            header, system_template = self.spit_system_prompt( body, root )
-        except Exception as e:
-            return self.log( f"Failed to parse yaml header: {e}" )
+            root = os.path.join("/app", "steve", str(uuid.uuid4()))
+            os.makedirs(root, exist_ok=True)
 
-        try:
-            if "requirements" in header:
-                for package in header["requirements"]:
-                    self.install_and_import( package )
-        except Exception as e:
-            return self.log( f"Failed to install requirements {e}" )
+            try:
+                header, system_template = self.spit_system_prompt( body, root )
+            except Exception as e:
+                return self.log( f"Failed to parse yaml header: {e}" )
 
-        files = self.process_files( header, root )
+            try:
+                if "requirements" in header:
+                    for package in header["requirements"]:
+                        self.install_and_import( package )
+            except Exception as e:
+                return self.log( f"Failed to install requirements {e}" )
 
-        system, interface_functions = self.render( system_template, header, root )
-        
-        body["messages"] = [message for message in body["messages"] if message["role"] != "system"]       
-        body["messages"].insert(0, {"role": "system", "content": system } )
+            files = self.process_files( header, root )
 
-        inlet_func = interface_functions.get("inlet", lambda x: x)
-        body = inlet_func( body )
+            system, interface_functions = self.render( system_template, header, root )
+            
+            body["messages"] = [message for message in body["messages"] if message["role"] != "system"]       
+            body["messages"].insert(0, {"role": "system", "content": system } )
 
-        class CustomResponse:
-            def __init__(self ):
-                self.responses = []
+            inlet_func = interface_functions.get("inlet", lambda x: x)
+            body = inlet_func( body )
 
-            def process(self, text ):
-                return [ text ]
+            class CustomResponse:
+                def __init__(self ):
+                    self.responses = []
 
-            def final(self ):
-                return [ ]
+                def process(self, text ):
+                    return [ text ]
 
-        try:
-            response_class = interface_functions.get( "outlet", CustomResponse )
+                def final(self ):
+                    return [ ]
 
-        except Exception as e:
-            return self.log( f"Failed to find outlet class {e}" )
+            try:
+                response_class = interface_functions.get( "outlet", CustomResponse )
 
-        pipe_func = interface_functions.get("pipe", None)
+            except Exception as e:
+                return self.log( f"Failed to find outlet class {e}" )
 
-        custom_response = response_class ( )
+            pipe_func = interface_functions.get("pipe", None)
 
-        if pipe_func:
-            for pipe_resp in pipe_func( user_message, model_id, messages, body ):
-                for resp in custom_response.process( pipe_resp ):
-                    yield resp
-                for resp in custom_response.final():
-                    yield resp
+            custom_response = response_class ( )
 
-        elif "ollama_url" in header and "model" in header:
-            OLLAMA_URL = header.get("ollama_url", "http://host.docker.internal:11434")
-            MODEL = header.get("model", "llama3.2:latest")
+            if pipe_func:
+                for pipe_resp in pipe_func( user_message, model_id, messages, body ):
+                    for resp in custom_response.process( pipe_resp ):
+                        yield resp
+                    for resp in custom_response.final():
+                        yield resp
 
-            from ollama import Client
-            client = Client( host = ollama_url )
-            response = client.chat(model=ollama_model, messages=body["messages"], stream=body["stream"] )
+            elif "ollama_url" in header and "model" in header:
+                OLLAMA_URL = header.get("ollama_url", "http://host.docker.internal:11434")
+                MODEL = header.get("model", "llama3.2:latest")
 
-            if body["stream"]:
-                for chunk in response:
-                    try:
-                        line = chunk['message']['content'] or ""
-                        
-                        if type( line ) == str:
-                            for resp in custom_response.process( line ):
-                                yield resp
+                from ollama import Client
+                client = Client( host = ollama_url )
+                response = client.chat(model=ollama_model, messages=body["messages"], stream=body["stream"] )
 
-                        if chunk["done"] == True:
-                            for resp in custom_response.final():
-                                yield resp
+                if body["stream"]:
+                    for chunk in response:
+                        try:
+                            line = chunk['message']['content'] or ""
+                            
+                            if type( line ) == str:
+                                for resp in custom_response.process( line ):
+                                    yield resp
 
-                    except Exception as e:
-                        yield f"Failed to process chunk {e}"
+                            if chunk["done"] == True:
+                                for resp in custom_response.final():
+                                    yield resp
+
+                        except Exception as e:
+                            yield f"Failed to process chunk {e}"
+                else:
+                    for resp in custom_response.process( response['message']['content'] ):
+                        yield resp
+
+                    for resp in custom_response.final():
+                        yield resp
+
+            elif "open_ai_api_key" in header and "model" in header:
+                url = header.get ( "url", "https://api.openai.com/v1/chat/completions" )
+                from openai import OpenAI
+                client = OpenAI( api_key = header["open_ai_api_key"] )
+
+                response = client.chat.completions.create( model=header["model"], messages= body["messages"], stream=body["stream"] )
+
+                if body["stream"]:
+                    for chunk in response:
+                        try:
+                            line = chunk.choices[0].delta.content or ""
+                            
+                            if type( line ) == str:
+                                for resp in custom_response.process( line ):
+                                    yield resp
+                            if chunk.choices[0].finish_reason == 'stop':
+                                for resp in custom_response.final():
+                                    yield resp
+                        except Exception as e:
+                            yield f"Failed to process chunk {e}"
+                else:
+                    for resp in custom_response.process( response.choices[0].message.content ):
+                        yield resp
+
+                    for resp in custom_response.final():
+                        yield resp
+
             else:
-                for resp in custom_response.process( response['message']['content'] ):
-                    yield resp
+                yield f"system: {system}"
 
-                for resp in custom_response.final():
-                    yield resp
+            if os.path.exists(root):
+                shutil.rmtree(root)
 
-        elif "open_ai_api_key" in header and "model" in header:
-            url = header.get ( "url", "https://api.openai.com/v1/chat/completions" )
-            from openai import OpenAI
-            client = OpenAI( api_key = header["open_ai_api_key"] )
-
-            response = client.chat.completions.create( model=header["model"], messages= body["messages"], stream=body["stream"] )
-
-            if body["stream"]:
-                for chunk in response:
-                    try:
-                        line = chunk.choices[0].delta.content or ""
-                        
-                        if type( line ) == str:
-                            for resp in custom_response.process( line ):
-                                yield resp
-                        if chunk.choices[0].finish_reason == 'stop':
-                            for resp in custom_response.final():
-                                yield resp
-                    except Exception as e:
-                        yield f"Failed to process chunk {e}"
-            else:
-                for resp in custom_response.process( response.choices[0].message.content ):
-                    yield resp
-
-                for resp in custom_response.final():
-                    yield resp
-
-        else:
-            yield f"system: {system}"
-
-        if os.path.exists(root):
-           shutil.rmtree(root)
+        except Exception as e:
+            yield f"Failed to call steve pipeline {e}"
