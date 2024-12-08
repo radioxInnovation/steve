@@ -42,20 +42,21 @@ class Pipeline:
         system_template = next((msg["content"] for msg in body["messages"] if msg["role"] == "system"), "")
         header = {}
 
-        match = re.match(r"^data:application/zip;base64,([^\n]+)$", system_template) 
-        if match:
-            base64_data = match.group(1)
-            file_data = base64.b64decode( base64_data )
-            system_template = ""
+        # match = re.match(r"^data:application/zip;base64,([^\n]+)$", system_template)
 
-            # extract
-            with zipfile.ZipFile(io.BytesIO(file_data)) as zip_file:
-                zip_file.extractall(path=root)
+        # if match:
+        #     base64_data = match.group(1)
+        #     file_data = base64.b64decode( base64_data )
+        #     system_template = ""
 
-                for file_name in zip_file.namelist():
-                    if file_name.endswith("system.mako"):
-                        with zip_file.open(file_name) as file:
-                            system_template = file.read().decode('utf-8') 
+        #     # extract
+        #     with zipfile.ZipFile(io.BytesIO(file_data)) as zip_file:
+        #         zip_file.extractall(path=root)
+
+        #         for file_name in zip_file.namelist():
+        #             if file_name.endswith("system.mako"):
+        #                 with zip_file.open(file_name) as file:
+        #                     system_template = file.read().decode('utf-8')
 
         yaml_match = re.match( r'---\s*\n(.*?)\n---\s*\n?(.*)', system_template, re.DOTALL )
         if yaml_match:
@@ -266,5 +267,5 @@ class Pipeline:
         else:
             yield f"system: {system}"
 
-        #if os.path.exists(temp_dir_path):
-        #    shutil.rmtree(temp_dir_path)
+        if os.path.exists(temp_dir_path):
+           shutil.rmtree(temp_dir_path)
